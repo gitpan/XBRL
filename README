@@ -1,0 +1,56 @@
+XBRL version 0.01
+=================
+
+XBRL is an object oriented Perl module for reading XBRL instance 
+documents. It seeks to both convert those documents into other formats 
+(e.g. HTML) and make the contents of the XBRL instance generally 
+available to other users without the need to completely understand 
+the XBRL format. Because the XBRL standard is large and complex, the 
+module currently implements only a subset of its features. The plan 
+is to accrete functionality over subsequent releases until a complete 
+and standards compliant implementation is achieved.
+
+INSTALLATION
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+DEPENDENCIES
+
+This module requires these other modules and libraries:
+
+Date::Manip 
+Carp 
+XML::LibXML 
+LWP::UserAgent
+File::Spec 
+File::Temp 
+Class::Accessor
+HTML::Table
+Exporter
+
+XML::LibXML is a Perl interface to the Gnome project's libxml library 
+and consequently requires libxml to be installed.
+
+USAGE
+
+use XBRL;
+
+my $xbrl_doc = XBRL->new( {file=>"foo.xml", schema_dir="/var/cache/xbrl"});
+
+my $html_report = $doc->get_html_report();
+
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2012 by Mark Gannon 
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself, either Perl version 5.10 or,
+at your option, any later version of Perl 5 you may have available.
+
+
