@@ -11,7 +11,7 @@ use XBRL::Label;
 use Data::Dumper;
 
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 our $agent_string = "Perl XBRL Library $VERSION";
 
 use base qw(Class::Accessor);
@@ -84,10 +84,10 @@ sub add_schema() {
 
 sub set_labels() {
 	#Load the array of labels 
-	my ($self) = @_;
-	my $label_arcs = $self->{'lab'}->findnodes("//*[local-name() =  'labelArc']");
-	my $label_locs =  $self->{'lab'}->findnodes("//*[local-name() =  'loc']"); 
-	my $label_labels =   $self->{'lab'}->findnodes("//*[local-name() =  'label']"); 
+	my ($self, $xpath) = @_;
+	my $label_arcs 		= $xpath->findnodes("//*[local-name() =  'labelArc']");
+	my $label_locs 		=	$xpath->findnodes("//*[local-name() =  'loc']"); 
+	my $label_labels 	=	$xpath->findnodes("//*[local-name() =  'label']"); 
 
 	my @label_array;
 
@@ -124,6 +124,13 @@ sub get_elementbyid() {
 }
 
 
+sub get_arcs() {
+	my ($self, $type, $uri) = @_;
+	my $arcs = $self->{$type}->{$uri};
+
+	return $arcs;
+}
+
 
 sub get_sections() {
 	my ($self) = @_;
@@ -153,17 +160,12 @@ sub in_def() {
 	#return nodelist of def  if true,  undef if not
 	my ($self, $sec_uri) = @_; 
 
-	my $d_link = $self->{'def'}->findnodes("//*[local-name() = 'definitionLink'][\@xlink:role = '" . $sec_uri . "' ]"); 
+	my $arcs = $self->{'def'}->{$sec_uri};
 
-	if ($d_link) {
-		my @definition_arcs = $d_link->[0]->getChildrenByLocalName('definitionArc'); 			
-		for my $d_arc (@definition_arcs) {
-			my $arcrole = $d_arc->getAttribute('xlink:arcrole');
-			if ($arcrole eq 'http://xbrl.org/int/dim/arcrole/hypercube-dimension') {
-				return $d_link;
-			}
-		}		
+	if ($arcs) {
+		return $arcs;
 	}
+
 	return undef;
 }
 
@@ -210,60 +212,99 @@ XBRL::Taxonomy - OO Module for Parsing XBRL Taxonomies
 
 This module is part of the XBRL modules group and is intended for use with XBRL.
 
-new( { main_schema => <schema object here> })  Object contstructor that 
-			requires an XBRL::Schema object of the XBRL instance document.  Usually bundled 
-			with the instance document with a file extension of .xsd. 
-				
-get_lb_files()  Returns an array reference with the filenames for all 
-			the linkbases contained in the main schema.  
+=over 4
 
-get_other_schemas() Returns an array reference with the location URLs of all schemas  
-			included in the main schema.
+=item new 
 
-add_schema(<$additional_schema>) Takes an XBRL::Schema object and adds it to 
-			the taxonomy 
+	my $taxonomy = XBRL::Taxonomy->new( { main_schema => <schema object here> })  
 
-set_labels() Looks labels up in the Taxonomy's Label Linkbase and populates an 
-			array of XBRL::Label objects for resolving an element's name. 
+Object contstructor that requires an XBRL::Schema object of the 
+XBRL instance document.  Usually bundled with the instance document 
+with a file extension of .xsd.  
 
-get_elementbyid($element_id) Looks up an element in the Taxonomy using the 
-			element's ID as assigned in the schema.
 
-get_sections() Returns an array reference of anonymous hashes where the 
-			key values are: 
-				def -- the value of <link:definition> in the instance schema.  Frequently 
-					used as the title of the section.
-				uri -- the value of the <link:roleType> roleURI attribute.  Used to look
-					up the section entries in the Presentation, Definition, and Calculation
-					Linkbases.
-				order -- The value of the number at the beginning of the <link:definition>
-					element. 
+item get_lb_files 
 
-in_def($role_uri) Takes the role URI and determines returns true if the URI appears in 
-				in the Definition Linkbase and should be used for rendering a table in preference
-				over the entry in the Presentation Linkbase.						
+	my $link_base_file_names = $taxonomy->get_lb_files();	
 
-get_label($search_id, $role ) Takes an element id and an optional role in the form
-				of the role's URI (e.g. http://www.xbrl.org/2003/role/totalLabel).  If no 
-				role is specified the function will return the one with a URI of: 
-				http://www.xbrl.org/2003/role/label.  
+Returns an array reference with the filenames for all 
+the linkbases contained in the main schema.  
 
-elements() Returns an array reference of all the element objects associated with 
-				the main schema and any schemas that have been added 
+=item get_other_schemas 
 
-pre() Returns or sets an XML::LibXML::XPathContext object of the Presentation Linkbase    
+Returns an array reference with the location URLs of all schemas  
+included in the main schema.
 
-def() Returns or sets an XML::LibXML::XPathContext object of the Definition Linkbase    
+=item add_schema 
 
-cal() Returns or sets an XML::LibXML::XPathContext object of the Calculation Linkbase    
+Takes an XBRL::Schema object and adds it to the taxonomy  
 
-lab() Returns or sets an XML::LibXML::XPathContext object of the Label Linkbase    
+=item set_labels
 
-schemas() Returns or sets an hash ref where the values are XBRL::Schema objects and 
-				the keys are the namespaces of the schemas 
+Looks labels up in the Taxonomy's Label Linkbase and populates an 
+array of XBRL::Label objects for resolving an element's name. 
 
-main_schema() Returns or sets the namespace for the main_schema  
+=item get_elementbyid 
 
+Looks up an element in the Taxonomy using the 
+element's ID as assigned in the schema.
+
+=item get_sections 
+
+Returns an array reference of anonymous hashes where the 
+key values are: 
+def -- the value of <link:definition> in the instance schema.  Frequently 
+used as the title of the section.
+uri -- the value of the <link:roleType> roleURI attribute.  Used to look
+up the section entries in the Presentation, Definition, and Calculation
+Linkbases.
+order -- The value of the number at the beginning of the <link:definition>
+element. 
+
+=item in_def 
+
+Takes the role URI and determines returns true if the URI appears in 
+in the Definition Linkbase and should be used for rendering a table in preference
+over the entry in the Presentation Linkbase.						
+
+=item get_label 
+
+Takes an element id and an optional role in the form
+of the role's URI (e.g. http://www.xbrl.org/2003/role/totalLabel).  If no 
+role is specified the function will return the one with a URI of: 
+http://www.xbrl.org/2003/role/label.  
+
+=item elements() 
+
+Returns an array reference of all the element objects associated with 
+the main schema and any schemas that have been added 
+
+=item pre 
+
+Returns or sets an XML::LibXML::XPathContext object of the Presentation Linkbase    
+
+=item def 
+
+Returns or sets an XML::LibXML::XPathContext object of the Definition Linkbase    
+
+=item cal 
+
+Returns or sets an XML::LibXML::XPathContext object of the Calculation Linkbase    
+
+=item lab 
+
+Returns or sets an XML::LibXML::XPathContext object of the Label Linkbase    
+
+=item schemas 
+
+Returns or sets an hash ref where the values are XBRL::Schema objects and 
+the keys are the namespaces of the schemas 
+
+=item main_schema 
+
+Returns or sets the namespace for the main_schema  
+
+=back
 
 =head1 AUTHOR
 

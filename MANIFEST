@@ -13,6 +13,7 @@ lib/XBRL/Arc.pm
 lib/XBRL/Schema.pm
 lib/XBRL/Table.pm
 lib/XBRL/Taxonomy.pm
+lib/XBRL/TableHTML.pm
 lib/XBRL/Unit.pm
 META.yml                                 Module YAML meta-data (added by MakeMaker)
 META.json                                Module JSON meta-data (added by MakeMaker)
