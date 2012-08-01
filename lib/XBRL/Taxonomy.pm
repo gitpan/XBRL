@@ -11,7 +11,7 @@ use XBRL::Label;
 use Data::Dumper;
 
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 our $agent_string = "Perl XBRL Library $VERSION";
 
 use base qw(Class::Accessor);
@@ -162,7 +162,7 @@ sub in_def() {
 
 	my $arcs = $self->{'def'}->{$sec_uri};
 
-	if ($arcs) {
+	if ($arcs->[0]) {
 		return $arcs;
 	}
 

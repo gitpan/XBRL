@@ -21,7 +21,7 @@ our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
 our @EXPORT = qw(
 );
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 
 
@@ -65,16 +65,43 @@ sub get_xml_table() {
 	for my $row (@{$row_elements}) {
 		my $element = $tax->get_elementbyid($row->to_short());	
 		my $row_items = &get_norm_row($self, $element, $header_contexts);	
-		my $label = $tax->get_label($row->to_short(), $row->prefLabel()); 
+		#my $label = $tax->get_label($row->to_short(), $row->prefLabel()); 
 		#if ($row_items->[0]) {	
 			#print "\t\t\t" . $row->to_short() . "\t" . $label . "\n";	
-			$table->addRow($label, @{$row_items});	
+			$table->addRow($row->to_short(), @{$row_items});	
 		#}	
 	}
+
+	&set_row_labels($self, $table); 
 
 	return $table;
 }
 
+sub set_row_labels() {
+	my ($self, $table) = @_;
+	my $uri = $self->{'uri'};	
+	my $xbrl_doc = $self->{'xbrl'};
+	my $tax = $xbrl_doc->get_taxonomy();
+	my $p_arcs = $tax->get_arcs('pre', $uri);
+
+
+	#TODO Deal with different preferred labels for the same id in the same table
+	#this code just takes the first one for every instance.
+	for (my $i = 1; $i <= $table->getTableRows; $i++) {
+					#my $id = $table->getCell($i,1);
+		my $id = $table->get_row_id($i); 	
+		$id =~ s/\:/\_/;	
+		for (my $k = 0; $k < @{$p_arcs}; $k++) {
+				if ($id eq $p_arcs->[$k]->to_short()) {
+				#Get the label delete the entry from the the array
+					my $label = $tax->get_label($id, $p_arcs->[$k]->prefLabel());				
+					$table->label($i, $label);	
+					#$table->setCell($i, 1, $label);	
+					#delete $p_arcs[$k];	
+			}
+		}
+	}
+}
 
 
 sub get_norm_row() {
@@ -97,9 +124,12 @@ sub get_norm_row() {
 			my $item_context = $xbrl_doc->get_context($item->context());
 			next if $item_context->has_dim();	
 			if ($header_context->label() eq $item_context->label()) {
-				$value = $item->adjValue();	
+				$value = $item->value();	
+				#$value = $item->adjValue();	
 			#	$row = $row . "<td>" . $value . "</td>\n";
-				push(@out_array, $value);	
+				if ($value) {	
+					push(@out_array, $value);	
+				}	
 			}
 		}
 		if (!$value) {
@@ -107,7 +137,6 @@ sub get_norm_row() {
 				push(@out_array, '&nbsp');
 		}
 	}
-
 	return \@out_array;
 }
 
@@ -274,33 +303,36 @@ sub get_row_elements() {
 	#print "URI: $uri \n";	
 	my $xbrl_doc = $self->{'xbrl'};	
 	my $tax = $xbrl_doc->get_taxonomy();	
-	my $sub_secs = &get_subsects($self, $uri);
 	my $arcs = $tax->get_arcs("pre", $uri);	
 	
-	my @complete_array = ();	
+	my %unique_hash;
+	my @final_array;
 
-	#print "Sections: \n";
-		for my $section (@{$sub_secs}) {
-			my @sec_array = (); 	
-			#print "$section\n";
-			for my $arc (@{$arcs}) {
-				if ($arc->from_full() eq $section) {
-					#print "\t\t" . $arc->to_short() . "\n";	
-					push(@sec_array, $arc);
-				}
-			}
-			
-			my @ordered_array = sort { $a->order() <=> $b->order() } @sec_array;	
-		
-			push(@complete_array, @ordered_array);	
-		}
-
-
-	#my @ordered_array = sort { $a->order() <=> $b->order() } @section_array;	
-
-	
-	return \@complete_array;
+	if ($arcs->[0]) {
+		&test_recursion($arcs->[0]->from_short(), $arcs, \%unique_hash, \@final_array);
+		return $arcs;
+	}	
+	else {
+		return undef;
+	}
 }
+
+sub test_recursion() {
+	my ($section, $arc_queue, $unique_hash, $final_array  ) = @_;
+	#Need to fix ordering.  Uses document ordering and not 
+	#the order attribute.
+
+	for my $arc (@{$arc_queue}) {
+		if ($section eq $arc->from_short) {
+			if (! $unique_hash->{$arc->to_short} ) {
+				$unique_hash->{$arc->to_short}++;
+				push(@{$final_array}, $arc);	
+				&test_recursion($arc->to_short(), $arc_queue, $unique_hash, $final_array);	
+			}	
+		}
+	}
+}
+
 
 
 sub get_subsects() {

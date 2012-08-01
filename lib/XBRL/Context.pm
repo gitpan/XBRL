@@ -5,7 +5,8 @@ use warnings;
 use Date::Manip::Date;
 use Carp;
 use Data::Dumper;
-
+use POSIX;
+use Math::Round qw(round);
 
 use base qw( Class::Accessor );
 
@@ -74,13 +75,15 @@ sub parse() {
 		my $delta = $self->{'startDate'}->calc($self->{'endDate'}, $subtract, $mode); 
 	
 		#FIXME there is some Date::Manip weirdness around weeks and months	
+		my $delta_years = $delta->printf("%yv");	
 		my $delta_month = $delta->printf("%Mv");
 		my $delta_weeks = $delta->printf("%wv");
-		$delta_month = $delta_month + $delta_weeks / 4;
+		$delta_month = $delta_month + $delta_years * 12 + $delta_weeks / 4;
 		$self->{'duration'} = $delta_month;
 
 		my $end_of_time = $self->{'endDate'}->printf("%B %d, %Y");  
-			
+		#round the delta month up.
+		$delta_month = &round($delta_month);
 		$self->{'label'} = "$delta_month months ending $end_of_time";	
 	
 	}

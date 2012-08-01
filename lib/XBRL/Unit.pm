@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Carp;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use base qw(Class::Accessor);
 
@@ -50,7 +50,7 @@ sub parse() {
 
 =head1 NAME
 
-XBR::Unit - Perl Objected-Oriented Module for ecapsulating XBRL Units 
+XBRL::Unit - Perl Objected-Oriented Module for ecapsulating XBRL Units 
 
 =head1 SYNOPSIS
 

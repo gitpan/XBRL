@@ -21,6 +21,8 @@ use File::Spec qw( splitpath catpath curdir);
 use File::Temp qw(tempdir);
 use Cwd;
 use Data::Dumper;
+use Text::Capitalize;
+use Encode qw(decode_utf8);
 
 require Exporter;
 
@@ -36,7 +38,7 @@ our @EXPORT = qw(
 	
 );
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 our $agent_string = "Perl XBRL Library $VERSION";
 
 our $DEFAULT_CSS = '.label { text-align:left;} 
@@ -80,7 +82,7 @@ sub new() {
 	}
 	else {
 		#the schema_dir parameter wasn't there, use tmp 
-		$self->{'schema_dir'} = File::Temp->newdir(); 
+		$self->{'schema_dir'} = File::Temp->newdir(cleanup=>1); 
 	}
 
 	my ($volume, $dir, $filename);
@@ -132,7 +134,11 @@ sub parse_file() {
 	#load the schemas 
 	my $s_ref = $xc->findnodes("//*[local-name() = 'schemaRef']");
 	my $schema_file = $s_ref->[0]->getAttribute('xlink:href');
-	my $schema_xpath = &make_xpath($self, $schema_file);
+	
+	my $schema_path = File::Spec->catpath( undef, $self->{'base'}, $schema_file );	
+	
+	my $schema_xpath = &make_xpath($self, $schema_path);
+	
 	my $main_schema = XBRL::Schema->new( { file=> $schema_file, xpath=>$schema_xpath });
 	
 	$self->{'taxonomy'} = XBRL::Taxonomy->new( {main_schema => $main_schema} ); 
@@ -143,6 +149,7 @@ sub parse_file() {
 		#Get the file 
 		my $s_file = &get_file($self, $other, $self->{'schema_dir'}); 
 		#make the xpath 
+		#my $s_path = File::Spec->catpath( undef, $self->{'base'}, $s_file);	
 		my $s_xpath = &make_xpath($self, $s_file);	
 		#add the schema   
 		my $schema = XBRL::Schema->new( { file => $s_file, xpath=>$s_xpath } );	
@@ -216,6 +223,22 @@ sub parse_file() {
 		
 		my $item = XBRL::Item->new($instance_xml);	
 		push(@items, $item);	
+		#deal with document level tags 	
+		if ($item->name() =~ m/dei\:EntityRegistrantName/i) { 
+			$self->{'firm'} = $item->value();
+		}
+		elsif ($item->name() =~ m/dei\:DocumentType/i) { 
+			$self->{'report_type'} = $item->value();	
+		}
+		elsif ($item->name() =~ m/dei\:DocumentPeriodEndDate/i) { 
+			$self->{'report_date'} = $item->value();	
+		}
+		elsif ($item->name() =~ m/dei\:DocumentFiscalPeriodFocus/i) { 
+			$self->{'report_period'} = $item->value();	
+		}
+		elsif ($item->name() =~ m/dei\:TradingSymbol/i) {
+			$self->{'ticker'} = $item->value();
+		}
 	}
 	$self->{'items'} = \@items;
 
@@ -234,12 +257,16 @@ sub make_arcs() {
 	my $section = $xpath->findnodes("//*[local-name() = '" . $type . "'][\@xlink:role = '" . $uri . "' ]"); 
 	
 	unless ($section) {return undef; }
+
+	my (@loc_links, @arc_links);
+
+	for my $node (@{$section}) {
+		push(@loc_links,  $node->getChildrenByLocalName('loc')); 
+		$type =~ s/Link$/Arc/g;	
+		push(@arc_links, $node->getChildrenByLocalName($type)); 
+	}
 	
-	my @loc_links = $section->[0]->getChildrenByLocalName('loc'); 
-	$type =~ s/Link$/Arc/g;	
-	my @arc_links = $section->[0]->getChildrenByLocalName($type); 
-
-
+	
 	for my $arc_xml (@arc_links) {
 		my $arc = XBRL::Arc->new();
 		$arc->order($arc_xml->getAttribute('order'));	
@@ -270,10 +297,33 @@ sub make_arcs() {
 		push(@out_arcs, $arc);	
 	}
 
-	return \@out_arcs;
+#	my %unique_hash;
+#	my @final_array;
+#	if (($type =~ m/presentation/) && ($loc_links[0])) {	
+#		my $full_url = $loc_links[0]->getAttribute('xlink:href');
+#		$full_url =~ m/\#([A-Za-z0-9_-].+)$/; 	
+#		&flatten($1, \@out_arcs, \%unique_hash, \@final_array);
+#		return \@final_array;	
+#	}	
+#	else {
+		return \@out_arcs;
+	#}
 }
 
+sub flatten() {
+	my ($domain_finder, $arc_queue, $unique_hash, $final_array  ) = @_;
+	
 
+	for my $incoming (@{$arc_queue}) {
+		if ($domain_finder eq $incoming->from_short) {
+			if (! $unique_hash->{$incoming->to_short} ) {
+				$unique_hash->{$incoming->to_short}++;
+				push(@{$final_array}, $incoming);	
+				&flatten($incoming->to_short(), $arc_queue, $unique_hash, $final_array);	
+			}	
+		}
+	}
+}
 
 sub get_taxonomy() {
 	my ($self) = @_;
@@ -301,6 +351,7 @@ sub get_item() {
 	unless (defined($item_number)) { $item_number = -1; } 	
 	return($self->{'items'}[$item_number]); 
 }
+
 
 sub get_all_items() {
 	my ($self) = @_;
@@ -334,6 +385,7 @@ sub get_item_by_contexts() {
 sub make_xpath() {
 	#take a file path and return an xpath context
 	my ($self, $in_file) = @_;
+	
 	my $ns = &extract_namespaces($self, $in_file); 
 
 	my $xml_doc =XML::LibXML->load_xml( location => $in_file); 
@@ -345,7 +397,11 @@ sub make_xpath() {
 	for (keys %{$ns}) {
 		$xml_xpath->registerNs($_, $ns->{$_});
 	}
-	
+
+	#p3xbrl.com leaves out the link namespace in its schemas
+	$xml_xpath->registerNs('link', 'http://www.xbrl.org/2003/linkbase');
+
+
 	return $xml_xpath;
 }
 
@@ -469,7 +525,7 @@ sub get_html_report() {
 	
 	my $items = $self->{'items'};
 
-
+	#TODO Use the already calculated versions to avoid extra loop
 	for my $item (@{$items}) {
 		if ($item->name() eq 'dei:EntityRegistrantName') {
 			$firm= $item->value();
@@ -482,13 +538,16 @@ sub get_html_report() {
 		}
 	}
 
-	if ($type eq '10-K') {
+	if (($type) && ($type eq '10-K')) {
 		$title = $firm . " 10-K for Year Ending: " . $enddate; 
 	}
-	elsif ($type eq '10-Q') {
+	elsif (($type) && ($type eq '10-Q')) {
 		$title = $firm . " 10-Q for Quarter Ending: " . $enddate; 
 	}
-
+	else {
+		$title = $firm . " " . $enddate; 
+	}
+	
 	my $html = "<html><head><title>$title</title>\n"; 
 
 	if ($css_file) {
@@ -507,7 +566,8 @@ sub get_html_report() {
 		$html = $html . '</style>'; 
 
 	}
-
+	
+	$title = capitalize_title(decode_utf8($title));
 
 	$html = $html . "</head><body>\n";
 
@@ -518,17 +578,27 @@ sub get_html_report() {
 	my $sections = $tax->get_sections();
 		
 	for my $sect (@{$sections}) {
-		$html = $html . "<h2>" . $sect->{'def'} . "</h2>\n";	
+		
+		my $sect_title;   
+		eval{ $sect_title = capitalize_title(decode_utf8($sect->{'def'})) };	
+		if ($sect_title) {	
+			$html = $html . "<h2>" . $sect_title . "</h2>\n";	
+		}
+		else {
+			$html = $html . "<h2>" . $sect->{'def'}  . "</h2>\n";	
+		}
+		
 		if ($tax->in_def($sect->{'uri'})) {
 			#Dimension table 	
 			my $dim = XBRL::Dimension->new($self, $sect->{'uri'});	
+
 			my $final_table;	
 			$final_table = $dim->get_xml_table($sect->{'uri'}); 	
 		
 			if ($final_table) {	
 				my $html_table = XBRL::TableHTML->new( { xml => $final_table } );	
-				if ($html_table) {	
-				$html = $html . $html_table->asText() . "\n\n\n";	
+				if (($html_table) && ($html_table->asText())) {	
+								$html = $html . $html_table->asText() . "\n\n\n";	
 				}	
 			}	
 		}
@@ -552,6 +622,68 @@ sub get_html_report() {
 	}
 	
 	$html = $html . "</body></html>\n";
+
+}
+
+
+sub get_company() {
+	my ($self) = @_;
+	return($self->{'firm'}); 
+}
+
+sub report_type() {
+	my ($self) = @_;
+	return($self->{'report_type'}); 
+}
+
+sub report_date() {
+	my ($self) = @_;
+	return($self->{'report_date'}); 
+}
+
+sub report_period() {
+	my ($self) = @_;	
+	return($self->{'report_period'}); 
+}
+
+sub get_ticker() {
+	my ($self) = @_;
+	return($self->{'ticker'}); 
+}	
+
+
+sub get_income_statement() {
+	my ($self) = @_;
+	my $tax = $self->get_taxonomy();
+
+	my $sections = $tax->get_sections();
+
+	my $income_uri;	
+	FOO: {	
+		for my $sect (@{$sections}) {
+			my $title = $sect->{'def'};	
+				if (($title =~ m/statement/i) && 
+					(($title =~m /operation/i) || 
+					($title =~ m/income/i) || 
+					($title =~ m/earning/i) || 	
+					($title =~ m/loss/i) ) && 	
+					($title !~ m/parenthetical/i)) {
+						$income_uri = $sect->{'uri'};	
+					}
+					if ($income_uri) {
+						last FOO;
+					}
+				}
+			}	
+		
+			if ($tax->in_def($income_uri)) {
+				my $dim = XBRL::Dimension->new($self, $income_uri);
+				return($dim->get_xml_table($income_uri));
+			}
+			else {
+				my $pres_table = XBRL::Table->new($self, $income_uri);
+				return($pres_table->get_xml_table($income_uri));	
+			}
 
 }
 
@@ -667,6 +799,30 @@ Returns an XBRL::Context object based on the ID passed into the function.
 	my $taxonomy = $xbrl_doc->get_taxonomy();
 
 Returns an XBRL::Taxonomy instance based on the XBRL document. 
+
+
+=item get_company 
+
+	my $firm_name = $xbrl_doc->get_compan();
+
+Returns a scalar with the name of the firm issuing the document.
+
+=item report_type 
+	
+	my $report = $xbrl_doc->report_type()
+
+Returns the report type (e.g. 10-Q).
+
+=item report_date 
+
+	my $date = $xbrl_doc->report_date()
+
+Returns the date of the financial statement 
+
+=item report_period 
+
+Returns a scalar with the period (e.g. Q2). 
+
 
 =back
 
